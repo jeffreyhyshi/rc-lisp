@@ -2,6 +2,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 using namespace std;
 
@@ -26,15 +27,19 @@ struct lisp_object {
 	friend ostream& operator<<(ostream& os, const lisp_object& a) {
 		switch (a.type) {
 			case NUMBER:
+				os << "(num) ";
 				os << a.number;
 				break;
 			case STRING:
+				os << "(str) ";
 				os << "\"" << a.string_or_symbol << "\"";
 				break;
 			case SYMBOL:
+				os << "(sym) ";
 				os << a.string_or_symbol;
 				break;
 			case LIST:
+				os << "(list) ";
 				os << "[";
 				for (int i = 0; i < a.list.size(); i++) {
 					os << a.list[i];
@@ -48,6 +53,9 @@ struct lisp_object {
 		return os;
 	}
 };
+
+typedef lisp_object lisp_function(vector<lisp_object> &);
+typedef lisp_function* lisp_function_p;
 
 lisp_object read_string(string& line, size_t& pos);
 lisp_object read_quoted_symbol(string& line, size_t& pos);
@@ -181,7 +189,41 @@ lisp_object read(string& line) {
 	}
 }
 
+lisp_object eval(lisp_object in, unordered_map<string, lisp_function_p>& symbol_table) {
+	if (in.type != LIST) {
+		return in;
+	}
+	vector<lisp_object> evaluated;
+	for (int i = 0; i < in.list.size(); i++) {
+		lisp_object obj = in.list[i];
+		evaluated.push_back(eval(obj, symbol_table));
+	}
+	if (evaluated.size() > 0 && evaluated[0].type == SYMBOL && symbol_table.count(evaluated[0].string_or_symbol)) {
+		return symbol_table[evaluated[0].string_or_symbol](evaluated);
+	} else {
+		lisp_object result(LIST);
+		result.list = evaluated;
+		return result;
+	}
+}
+
+lisp_object addition(vector<lisp_object>& in) {
+	double r = 0.0;
+	for (int i = 1; i < in.size(); i++) {
+		if (in[i].type != NUMBER) {
+			throw runtime_error("Expected NUMBERS as arguments to +");
+		} else {
+			r += in[i].number;
+		}
+	}
+	lisp_object result(NUMBER);
+	result.number = r;
+	return result;
+}
+
 void repl(istream& input, bool is_file) {
+	unordered_map<string, lisp_function_p> symbol_table;
+	symbol_table.insert({"+", addition});
 	string line;
 	if (!is_file) {
 		cout << "> ";
@@ -190,7 +232,9 @@ void repl(istream& input, bool is_file) {
 		if (is_file) {
 			cout << "> " << line << "\n";
 		}
-		cout << read(line) << "\n";
+		lisp_object line_obj = read(line);
+		lisp_object evaluated = eval(line_obj, symbol_table);
+		cout << evaluated << "\n";
 		if (!is_file) {
 			cout << "> ";
 		}
